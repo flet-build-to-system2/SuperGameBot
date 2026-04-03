@@ -6,7 +6,7 @@ import sqlite3
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
-TOKEN = os.environ.get("TOKEN")  # ضع التوكن في Environment Variables
+TOKEN = os.environ.get("8777038264:AAGr6TwS2mXccJqE-bI2QTGJ-QAGmw_pNbA")  # ضع التوكن في Environment Variables
 
 DB = os.path.join(os.path.dirname(__file__), "db.sqlite")
 conn = sqlite3.connect(DB, check_same_thread=False)
