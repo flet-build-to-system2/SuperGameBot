@@ -1,21 +1,17 @@
-import os
-import sqlite3
 from flask import Flask, render_template
+import sqlite3
 
 app = Flask(__name__)
+DB = "../db.sqlite"  # تأكد أن المسار صحيح للخدمة
 
-DB = os.path.join(os.path.dirname(__file__), "../db.sqlite")
-conn = sqlite3.connect(DB, check_same_thread=False)
-cursor = conn.cursor()
-
-@app.route('/')
+@app.route("/")
 def index():
-    try:
-        cursor.execute("SELECT user_id, points FROM users ORDER BY points DESC LIMIT 10")
-        top = cursor.fetchall()
-    except sqlite3.OperationalError:
-        top = []
+    conn = sqlite3.connect(DB)
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_id, points FROM users ORDER BY points DESC LIMIT 10")
+    top = cursor.fetchall()
+    conn.close()
     return render_template("index.html", top=top)
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    app.run(host="0.0.0.0", port=8080)
