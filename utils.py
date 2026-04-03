@@ -1,12 +1,9 @@
 # utils.py
-# دوال مساعدة لبوت SuperGameBot
+import sqlite3
+import random
 
-# ===== XO / Tic Tac Toe =====
+# ===== XO =====
 def draw_board(board):
-    """
-    يرسم لوحة XO من مصفوفة board
-    board = ["X"," ","O",...]
-    """
     return f"""
  {board[0]} | {board[1]} | {board[2]}
 ---+---+---
@@ -16,14 +13,10 @@ def draw_board(board):
 """
 
 def check_xo_win(board):
-    """
-    يتحقق من وجود فائز في XO
-    يرجع "X" أو "O" أو "Draw" أو None
-    """
     win_cond = [
-        [0,1,2],[3,4,5],[6,7,8],  # صفوف
-        [0,3,6],[1,4,7],[2,5,8],  # أعمدة
-        [0,4,8],[2,4,6]           # أقطار
+        [0,1,2],[3,4,5],[6,7,8],
+        [0,3,6],[1,4,7],[2,5,8],
+        [0,4,8],[2,4,6]
     ]
     for cond in win_cond:
         a,b,c = cond
@@ -35,9 +28,6 @@ def check_xo_win(board):
 
 # ===== Leaderboard =====
 def format_leaderboard(cursor, limit=10):
-    """
-    ترجع النص جاهز للعرض على Telegram
-    """
     cursor.execute("SELECT user_id, points FROM users ORDER BY points DESC LIMIT ?", (limit,))
     top = cursor.fetchall()
     txt = "🥇 الترتيب:\n"
@@ -47,9 +37,6 @@ def format_leaderboard(cursor, limit=10):
 
 # ===== متجر =====
 def buy_item(cursor, conn, user_id, item, cost):
-    """
-    شراء عنصر من المتجر
-    """
     cursor.execute("SELECT points FROM users WHERE user_id=?", (user_id,))
     pts = cursor.fetchone()[0]
     if pts < cost:
