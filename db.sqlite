@@ -1,0 +1,17 @@
+CREATE TABLE users (
+    user_id INTEGER PRIMARY KEY,
+    points INTEGER DEFAULT 0
+);
+
+CREATE TABLE inventory (
+    user_id INTEGER,
+    item TEXT
+);
+
+CREATE TABLE xo_games (
+    game_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    player1 INTEGER,
+    player2 INTEGER,
+    board TEXT,
+    turn TEXT
+);
