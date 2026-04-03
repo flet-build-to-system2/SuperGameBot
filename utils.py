@@ -1,7 +1,7 @@
 import sqlite3
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-# --- لوحة أزرار XO ---
+# --- إنشاء لوحة أزرار XO ---
 def draw_xo_keyboard(board):
     keyboard = []
     for i in range(0, 9, 3):
@@ -12,12 +12,12 @@ def draw_xo_keyboard(board):
         keyboard.append(row)
     return InlineKeyboardMarkup(keyboard)
 
-# --- التحقق من فوز XO ---
+# --- التحقق من الفوز في XO ---
 def check_xo_win(board):
     win_cond = [
-        [0, 1, 2], [3, 4, 5], [6, 7, 8],
-        [0, 3, 6], [1, 4, 7], [2, 5, 8],
-        [0, 4, 8], [2, 4, 6]
+        [0, 1, 2], [3, 4, 5], [6, 7, 8], # أفقي
+        [0, 3, 6], [1, 4, 7], [2, 5, 8], # عمودي
+        [0, 4, 8], [2, 4, 6]             # قطري
     ]
     for cond in win_cond:
         a, b, c = cond
@@ -27,16 +27,16 @@ def check_xo_win(board):
         return "Draw"
     return None
 
-# --- لوحة الصدارة ---
+# --- تنسيق قائمة المتصدرين ---
 def format_leaderboard(cursor, limit=10):
     cursor.execute("SELECT user_id, points FROM users ORDER BY points DESC LIMIT ?", (limit,))
     top = cursor.fetchall()
-    txt = "🏆 **قائمة المتصدرين:**\n\n"
+    txt = "🏆 **قائمة المتصدرين (Top 10):**\n\n"
     for i, u in enumerate(top, 1):
-        txt += f"{i}. `ID: {u[0]}` — **{u[1]}** نقطة\n"
+        txt += f"{i}. `ID: {u[0]}` — **{u[1]}** pts\n"
     return txt
 
-# --- الشراء من المتجر ---
+# --- نظام الشراء من المتجر ---
 def buy_item(cursor, conn, user_id, item, cost):
     cursor.execute("SELECT points FROM users WHERE user_id=?", (user_id,))
     res = cursor.fetchone()
