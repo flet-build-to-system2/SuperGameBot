@@ -2,6 +2,7 @@
 import random
 import sqlite3
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import BotCommand
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 from utils import draw_xo_keyboard, check_xo_win, buy_item, format_leaderboard
 
@@ -191,7 +192,17 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ===== التشغيل =====
 def main():
-    app = ApplicationBuilder().token(TOKEN).build()
+    async def post_init(application):
+        """هذه الدالة تعمل فور تشغيل البوت لتسجيل قائمة الأوامر"""
+        commands = [
+            BotCommand("start", "الرجوع للقائمة الرئيسية 🔥"),
+            BotCommand("challenge", "تحدي صديق في لعبة التخمين 👥"),
+            BotCommand("xo", "تحدي صديق في لعبة XO ❌⭕"),
+        ]
+        await application.bot.set_my_commands(commands)
+    
+    #app = ApplicationBuilder().token(TOKEN).build()
+    app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     
     # 1. الأوامر
     app.add_handler(CommandHandler("start", start))
