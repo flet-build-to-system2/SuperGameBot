@@ -1,36 +1,21 @@
+import os
+import sqlite3
 from flask import Flask, render_template
-import sqlite3, os
 
 app = Flask(__name__)
-DB = os.path.join(os.path.dirname(__file__),"../db.sqlite")
 
-def get_db():
-    conn = sqlite3.connect(DB)
-    conn.row_factory = sqlite3.Row
-    return conn
+DB = os.path.join(os.path.dirname(__file__), "../db.sqlite")
+conn = sqlite3.connect(DB, check_same_thread=False)
+cursor = conn.cursor()
 
-@app.route("/")
+@app.route('/')
 def index():
-    conn = get_db()
-    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT user_id, points FROM users ORDER BY points DESC LIMIT 10")
+        top = cursor.fetchall()
+    except sqlite3.OperationalError:
+        top = []
+    return render_template("index.html", top=top)
 
-    cursor.execute("SELECT user_id, points FROM users ORDER BY points DESC LIMIT 10")
-    leaderboard = cursor.fetchall()
-
-    cursor.execute("SELECT * FROM users")
-    users = cursor.fetchall()
-
-    cursor.execute("SELECT * FROM inventory")
-    inventory = cursor.fetchall()
-
-    cursor.execute("SELECT * FROM active_games")
-    active_games = cursor.fetchall()
-
-    cursor.execute("SELECT * FROM xo_games")
-    xo_games = cursor.fetchall()
-
-    return render_template("index.html", leaderboard=leaderboard, users=users, inventory=inventory, active_games=active_games, xo_games=xo_games)
-
-if __name__=="__main__":
-    port = int(os.environ.get("PORT",5000))
-    app.run(host="0.0.0.0", port=port)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
