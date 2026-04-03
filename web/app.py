@@ -1,10 +1,8 @@
 from flask import Flask, render_template
-import sqlite3
-import os
+import sqlite3, os
 
 app = Flask(__name__)
-# استخدم المسار النسبي بالنسبة لسيرفر Railway
-DB = os.path.join(os.path.dirname(__file__), "../db.sqlite")
+DB = os.path.join(os.path.dirname(__file__),"../db.sqlite")
 
 def get_db():
     conn = sqlite3.connect(DB)
@@ -16,34 +14,23 @@ def index():
     conn = get_db()
     cursor = conn.cursor()
 
-    # Leaderboard
     cursor.execute("SELECT user_id, points FROM users ORDER BY points DESC LIMIT 10")
     leaderboard = cursor.fetchall()
 
-    # Users & Points
     cursor.execute("SELECT * FROM users")
     users = cursor.fetchall()
 
-    # Inventory
     cursor.execute("SELECT * FROM inventory")
     inventory = cursor.fetchall()
 
-    # Placeholder للألعاب الجارية
-    active_games = {
-        "solo": [],
-        "challenge": [],
-        "xo": []
-    }
+    cursor.execute("SELECT * FROM active_games")
+    active_games = cursor.fetchall()
 
-    return render_template(
-        "index.html",
-        leaderboard=leaderboard,
-        users=users,
-        inventory=inventory,
-        active_games=active_games
-    )
+    cursor.execute("SELECT * FROM xo_games")
+    xo_games = cursor.fetchall()
 
-# تشغيل على PORT الخاص بـ Railway
+    return render_template("index.html", leaderboard=leaderboard, users=users, inventory=inventory, active_games=active_games, xo_games=xo_games)
+
 if __name__=="__main__":
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT",5000))
     app.run(host="0.0.0.0", port=port)

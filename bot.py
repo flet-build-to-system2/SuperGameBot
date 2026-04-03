@@ -1,26 +1,43 @@
 # bot.py
-import random
-import sqlite3
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
-from utils import draw_board, check_xo_win, buy_item, format_leaderboard
+#TOKEN = "8777038264:AAGr6TwS2mXccJqE-bI2QTGJ-QAGmw_pNbA"
 
-TOKEN = "8777038264:AAGr6TwS2mXccJqE-bI2QTGJ-QAGmw_pNbA"
+import random, sqlite3, threading, os
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, CallbackQueryHandler,
+    MessageHandler, filters, ContextTypes
+)
+from utils import get_solo_number, update_points, start_xo_game
+
+TOKEN = os.environ.get("8777038264:AAGr6TwS2mXccJqE-bI2QTGJ-QAGmw_pNbA")
 
 # ===== DB =====
-conn = sqlite3.connect("db.sqlite", check_same_thread=False)
+DB = "db.sqlite"
+conn = sqlite3.connect(DB, check_same_thread=False)
 cursor = conn.cursor()
 
+# إنشاء الجداول إذا لم تكن موجودة
+cursor.execute("""CREATE TABLE IF NOT EXISTS users(user_id INTEGER PRIMARY KEY, points INTEGER DEFAULT 0)""")
+cursor.execute("""CREATE TABLE IF NOT EXISTS inventory(user_id INTEGER, item TEXT, quantity INTEGER DEFAULT 1)""")
 cursor.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    user_id INTEGER PRIMARY KEY,
-    points INTEGER DEFAULT 0
+CREATE TABLE IF NOT EXISTS active_games(
+    game_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type TEXT,
+    player1 INTEGER,
+    player2 INTEGER,
+    number INTEGER,
+    turn INTEGER,
+    tries INTEGER
 )
 """)
 cursor.execute("""
-CREATE TABLE IF NOT EXISTS inventory (
-    user_id INTEGER,
-    item TEXT
+CREATE TABLE IF NOT EXISTS xo_games(
+    game_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    player1 INTEGER,
+    player2 INTEGER,
+    board TEXT,
+    turn INTEGER,
+    winner INTEGER
 )
 """)
 conn.commit()
@@ -28,24 +45,15 @@ conn.commit()
 # ===== Data =====
 solo_games = {}
 quiz_games = {}
-
-# Multiplayer Guess
-pending_challenges = {}
-active_guess_games = {}
-
-# Multiplayer XO
-pending_xo = {}
-active_xo_games = {}
+pending_invites = {}
 
 # ===== Menu =====
 def menu():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎮 Solo Game", callback_data="solo")],
-        [InlineKeyboardButton("👥 Challenge Guess", callback_data="challenge")],
-        [InlineKeyboardButton("❌⭕ XO", callback_data="xo")],
+        [InlineKeyboardButton("🎮 Solo Guess", callback_data="solo")],
+        [InlineKeyboardButton("👥 Challenge", callback_data="invite")],
         [InlineKeyboardButton("🧠 Quiz", callback_data="quiz")],
-        [InlineKeyboardButton("💰 متجر", callback_data="shop")],
-        [InlineKeyboardButton("🏆 نقاطي", callback_data="points")],
+        [InlineKeyboardButton("💰 Points", callback_data="points")],
         [InlineKeyboardButton("🥇 Leaderboard", callback_data="leader")]
     ])
 
@@ -56,226 +64,81 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.commit()
     await update.message.reply_text("🔥 مرحبا بك في SuperGameBot PRO", reply_markup=menu())
 
-# ===== Buttons Handler =====
+# ===== Buttons =====
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     uid = q.from_user.id
     await q.answer()
 
-    # --- Solo ---
-    if q.data=="solo":
-        number = random.randint(1,100)
-        solo_games[uid] = {"number":number, "tries":5}
+    if q.data == "solo":
+        number = get_solo_number()
+        solo_games[uid] = {"number": number, "tries": 5}
         await q.message.reply_text("🎮 خمن رقم بين 1 و 100 (5 محاولات)")
-
-    # --- Quiz ---
-    elif q.data=="quiz":
-        question = random.choice([("عاصمة فرنسا؟","paris"),("5+7=?","12"),("لون السماء؟","blue")])
-        quiz_games[uid] = question
-        await q.message.reply_text(f"🧠 {question[0]}")
-
-    # --- Challenge Guess ---
-    elif q.data=="challenge":
-        await q.message.reply_text("📩 استعمل: /challenge UID")
-
-    # --- XO Multiplayer ---
-    elif q.data=="xo":
-        await q.message.reply_text("📩 استعمل: /xo UID لتحدي صديق")
-
-    # --- متجر ---
-    elif q.data=="shop":
-        kb = [
-            [InlineKeyboardButton("🎟️ محاولة إضافية (20 pts)", callback_data="buy_try")],
-            [InlineKeyboardButton("💡 تلميح (15 pts)", callback_data="buy_hint")]
-        ]
-        await q.message.reply_text("🛒 المتجر:", reply_markup=InlineKeyboardMarkup(kb))
-
-    # --- نقاط ---
-    elif q.data=="points":
+    elif q.data == "invite":
+        await q.message.reply_text("📩 استعمل: /challenge ID")
+    elif q.data == "quiz":
+        question, answer = random.choice([("عاصمة فرنسا؟","paris"),("5+7=?","12"),("لون السماء؟","blue")])
+        quiz_games[uid] = (question, answer)
+        await q.message.reply_text(f"🧠 {question}")
+    elif q.data == "points":
         cursor.execute("SELECT points FROM users WHERE user_id=?", (uid,))
         pts = cursor.fetchone()[0]
-        await q.message.reply_text(f"🏆 نقاطك: {pts}")
-
-    # --- Leaderboard ---
-    elif q.data=="leader":
-        txt = format_leaderboard(cursor)
+        await q.message.reply_text(f"💰 نقاطك: {pts}")
+    elif q.data == "leader":
+        cursor.execute("SELECT user_id, points FROM users ORDER BY points DESC LIMIT 10")
+        top = cursor.fetchall()
+        txt = "🥇 Leaderboard:\n"
+        for i, u in enumerate(top, 1):
+            txt += f"{i}. {u[0]} - {u[1]} pts\n"
         await q.message.reply_text(txt)
 
-    # --- شراء متجر ---
-    elif q.data=="buy_try":
-        success = buy_item(cursor, conn, uid, "try", 20)
-        await q.message.reply_text("✅ شريت محاولة إضافية" if success else "❌ نقاطك ناقصة")
-    elif q.data=="buy_hint":
-        success = buy_item(cursor, conn, uid, "hint", 15)
-        await q.message.reply_text("✅ شريت تلميح" if success else "❌ نقاطك ناقصة")
-
-# ===== Challenge Guess Command =====
-async def challenge_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    if not context.args:
-        await update.message.reply_text("استعمل: /challenge UID")
-        return
-    opponent = int(context.args[0])
-    pending_challenges[opponent] = uid
-    kb = [[
-        InlineKeyboardButton("✅ قبول", callback_data=f"guess_acc_{uid}"),
-        InlineKeyboardButton("❌ رفض", callback_data=f"guess_rej_{uid}")
-    ]]
-    try:
-        await context.bot.send_message(opponent, "👥 تحدي Guess Game!", reply_markup=InlineKeyboardMarkup(kb))
-        await update.message.reply_text("📨 تم الإرسال")
-    except:
-        await update.message.reply_text("❌ اللاعب لم يبدأ البوت")
-
-# ===== Accept/Reject Challenge Guess =====
-async def handle_guess_invite(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    uid = q.from_user.id
-    await q.answer()
-    challenger = int(q.data.split("_")[2])
-    if q.data.startswith("guess_acc"):
-        number = random.randint(1,100)
-        active_guess_games[uid] = {"op":challenger, "number":number, "turn":challenger, "tries":5}
-        active_guess_games[challenger] = {"op":uid, "number":number, "turn":challenger, "tries":5}
-        await context.bot.send_message(challenger, "🔥 دورك")
-        await q.message.reply_text("✅ بدأ التحدي")
-    else:
-        await context.bot.send_message(challenger, "❌ تم الرفض")
-
-# ===== XO Challenge Command =====
-async def xo_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    if not context.args:
-        await update.message.reply_text("استعمل: /xo UID")
-        return
-    opponent = int(context.args[0])
-    pending_xo[opponent] = uid
-    kb = [[
-        InlineKeyboardButton("✅ قبول", callback_data=f"xo_acc_{uid}"),
-        InlineKeyboardButton("❌ رفض", callback_data=f"xo_rej_{uid}")
-    ]]
-    try:
-        await context.bot.send_message(opponent, "❌⭕ تحدي XO!", reply_markup=InlineKeyboardMarkup(kb))
-        await update.message.reply_text("📨 تم الإرسال")
-    except:
-        await update.message.reply_text("❌ اللاعب لم يبدأ البوت")
-
-# ===== Accept/Reject XO =====
-async def handle_xo_invite(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    uid = q.from_user.id
-    await q.answer()
-    challenger = int(q.data.split("_")[2])
-    if q.data.startswith("xo_acc"):
-        board = [" "]*9
-        active_xo_games[uid] = {"p1":challenger, "p2":uid, "board":board, "turn":challenger}
-        active_xo_games[challenger] = {"p1":challenger, "p2":uid, "board":board, "turn":challenger}
-        await context.bot.send_message(challenger, draw_board(board)+"\n🔥 دورك")
-        await q.message.reply_text("✅ بدأ XO Multiplayer")
-    else:
-        await context.bot.send_message(challenger, "❌ تم الرفض")
-
-# ===== Message Handler =====
+# ===== Guess Handler =====
 async def guess(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     txt = update.message.text.lower()
 
-    # --- Solo ---
+    # SOLO
     if uid in solo_games:
-        try: g = int(txt)
-        except: await update.message.reply_text("❌ دخل رقم صالح"); return
-        game = solo_games[uid]; game["tries"]-=1
-        if g==game["number"]:
-            cursor.execute("UPDATE users SET points=points+10 WHERE user_id=?", (uid,))
-            conn.commit()
-            await update.message.reply_text("🎉 ربحت +10 نقاط")
+        try:
+            g = int(txt)
+        except:
+            await update.message.reply_text("❌ دخل رقم صحيح")
+            return
+        game = solo_games[uid]
+        game["tries"] -= 1
+        if g == game["number"]:
+            update_points(uid, 10)
+            await update.message.reply_text("🎉 صح! +10 نقاط")
             del solo_games[uid]
-        elif game["tries"]<=0:
+        elif game["tries"] <= 0:
             await update.message.reply_text(f"❌ خسرت! الرقم كان {game['number']}")
             del solo_games[uid]
-        elif g<game["number"]:
-            await update.message.reply_text(f"📉 أكبر | {game['tries']} محاولات متبقية")
+        elif g < game["number"]:
+            await update.message.reply_text(f"📉 أكبر | {game['tries']} محاولات")
         else:
-            await update.message.reply_text(f"📈 أصغر | {game['tries']} محاولات متبقية")
+            await update.message.reply_text(f"📈 أصغر | {game['tries']} محاولات")
         return
 
-    # --- Quiz ---
+    # QUIZ
     if uid in quiz_games:
-        q, ans = quiz_games[uid]
-        if txt==ans:
-            cursor.execute("UPDATE users SET points=points+5 WHERE user_id=?", (uid,))
-            conn.commit()
+        q,a = quiz_games[uid]
+        if txt == a:
+            update_points(uid, 5)
             await update.message.reply_text("✅ صحيح +5 نقاط")
-        else: await update.message.reply_text("❌ خطأ")
-        del quiz_games[uid]; return
-
-    # --- Multiplayer Guess ---
-    if uid in active_guess_games:
-        game = active_guess_games[uid]
-        if game["turn"]!=uid:
-            await update.message.reply_text("⏳ ماشي دورك")
-            return
-        try: g = int(txt)
-        except: return
-        game["tries"]-=1; op = game["op"]
-        if g==game["number"]:
-            cursor.execute("UPDATE users SET points=points+30 WHERE user_id=?", (uid,))
-            conn.commit()
-            await update.message.reply_text("🏆 ربحت +30")
-            await context.bot.send_message(op, "❌ خسرت")
-            del active_guess_games[uid]; del active_guess_games[op]
-        elif game["tries"]<=0:
-            await update.message.reply_text("❌ خسرت")
-            await context.bot.send_message(op, "🏆 ربحت")
-            del active_guess_games[uid]; del active_guess_games[op]
         else:
-            hint = "📉 أكبر" if g<game["number"] else "📈 أصغر"
-            await update.message.reply_text(f"{hint} | {game['tries']}")
-            game["turn"]=op; active_guess_games[op]["turn"]=op
-            await context.bot.send_message(op, "🎯 دورك")
-        return
-
-    # --- Multiplayer XO ---
-    if uid in active_xo_games:
-        game = active_xo_games[uid]
-        if game["turn"]!=uid:
-            await update.message.reply_text("⏳ ماشي دورك")
-            return
-        board = game["board"]
-        try:
-            pos=int(txt)
-            if board[pos]!=" ": await update.message.reply_text("❌ المربع مشغول"); return
-        except:
-            await update.message.reply_text("❌ اكتب رقم 0-8"); return
-        board[pos]="X" if uid==game["p1"] else "O"
-        winner=check_xo_win(board)
-        if winner:
-            if winner=="X" or winner=="O":
-                cursor.execute("UPDATE users SET points=points+20 WHERE user_id=?", (uid,))
-                conn.commit()
-                await update.message.reply_text(draw_board(board)+f"\n🎉 ربحت +20")
-            elif winner=="Draw":
-                await update.message.reply_text(draw_board(board)+"\n🤝 تعادل")
-            del active_xo_games[uid]; del active_xo_games[game["p1"] if uid==game["p2"] else game["p2"]]
-            return
-        # نقل الدور
-        next_turn = game["p2"] if uid==game["p1"] else game["p1"]
-        game["turn"]=next_turn
-        await context.bot.send_message(next_turn, draw_board(board)+"\n🔥 دورك")
+            await update.message.reply_text("❌ خطأ")
+        del quiz_games[uid]
         return
 
 # ===== Main =====
 def main():
-    app=ApplicationBuilder().token(TOKEN).build()
+    app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("challenge", challenge_cmd))
-    app.add_handler(CommandHandler("xo", xo_cmd))
     app.add_handler(CallbackQueryHandler(buttons))
-    app.add_handler(CallbackQueryHandler(handle_guess_invite, pattern="^guess_"))
-    app.add_handler(CallbackQueryHandler(handle_xo_invite, pattern="^xo_"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, guess))
-    print("🔥 SuperGameBot PRO RUNNING")
+
+    print("🔥 SuperGameBot RUNNING")
     app.run_polling()
 
-if __name__=="__main__":
+if __name__ == "__main__":
     main()
