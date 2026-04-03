@@ -244,7 +244,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             await update.message.reply_text(f"خطأ! الرقم {hint}. دور الخصم الآن.")
             # إرسال الرسالة للخصم (op) وليس لنفس الشخص (uid)
-            await context.bot.send_message(op, f"🎯 دورك الآن!\nالخصم خمن {g} والنتيجة {hint}.\nخمن الآن:")
+            await context.bot.send_message(op, f"🎯 دورك الآن!\nالخصم خمن {g} والنتيجة خمن الآن:")
 
 # ===== تشغيل التطبيق =====
 def main():
